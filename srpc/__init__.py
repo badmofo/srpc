@@ -74,8 +74,6 @@ class SecureRpcClient(object):
         nonce = nacl.utils.random(16)
         send_message(s, request, nonce, self.client_private_key, self.server_public_key)
         sender_public_key, response_nonce, response = read_message(s, self.client_private_key)
-        
-        print sender_public_key.encode(HexEncoder), response_nonce.encode('hex'), response, self.server_public_key.encode(HexEncoder)
         if sender_public_key.encode(HexEncoder) != self.server_public_key.encode(HexEncoder):
             raise SecureRpcException('reply authentication error')
         if nonce != response_nonce:
