@@ -1,9 +1,10 @@
 import sys
-from ssrpc import secure_rpc_serve, SecureRpcClient
+from srpc import secure_rpc_serve, SecureRpcClient
 
 class Adder(object):
-    def add(self, invoker, a, b):
-        print 'adding', invoker, a, b
+    def add(self, request, a, b):
+        print request.public_key, request.remote_addr
+        print 'adding', a, b
         return a + b
         
 if sys.argv[1].startswith('s'):

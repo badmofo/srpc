@@ -3,6 +3,7 @@ import struct
 import socket
 import SocketServer
 import nacl.utils
+from nacl.encoding import HexEncoder
 from nacl.public import PrivateKey, PublicKey, Box
 from nacl.exceptions import CryptoError
 
@@ -25,29 +26,35 @@ def read_message(sock, private_key):
     try:
         box = Box(private_key, public_key_sender)
         plaintext = box.decrypt(ciphertext)
+        anti_replay_nonce, plaintext = plaintext[:16], plaintext[16:]
         message = json.loads(plaintext)
     except ValueError, e:
         raise SecureRpcException('decode error: invalid json')
     except CryptoError, e:
         raise SecureRpcException('decrypt error: %s' % e)
-    return public_key_sender, message
+    return public_key_sender, anti_replay_nonce, message
     
-def send_message(sock, message, private_key_sender, public_key_recipient):
-    plaintext = json.dumps(message)
-    nonce = nacl.utils.random(Box.NONCE_SIZE)
+def send_message(sock, message, anti_replay_nonce, private_key_sender, public_key_recipient):
+    plaintext = anti_replay_nonce + json.dumps(message)
     box = Box(private_key_sender, public_key_recipient)
-    ciphertext = box.encrypt(plaintext, nonce)
+    ciphertext = box.encrypt(plaintext, nacl.utils.random(Box.NONCE_SIZE))
     public_key_sender = private_key_sender.public_key.encode()
     sock.sendall(struct.pack('!L', len(ciphertext)) + public_key_sender + ciphertext)
 
+class SecureRpcRequest(object):
+    def __init__(self, public_key, remote_addr):
+        self.public_key = public_key
+        self.remote_addr = remote_addr
+
 def secure_rpc_serve(host, port, server_private_key, server_proxy):
-    private_key = PrivateKey(server_private_key.decode('hex'))
+    private_key = PrivateKey(server_private_key, HexEncoder)
     class MyTCPHandler(SocketServer.BaseRequestHandler):
         def handle(self):
-            public_key, message = read_message(self.request, private_key)
-            public_key_hex = public_key.encode().encode('hex')
-            response = getattr(server_proxy, message['method'])(*([public_key_hex] + message['params']))
-            send_message(self.request, response, private_key, public_key)
+            public_key, nonce, message = read_message(self.request, private_key)
+            public_key_hex = public_key.encode(HexEncoder)
+            request = SecureRpcRequest(public_key_hex, self.request.getpeername()[0])
+            response = getattr(server_proxy, message['method'])(*([request] + message['params']))
+            send_message(self.request, response, nonce, private_key, public_key)
     SocketServer.TCPServer.allow_reuse_address = True
     server = SocketServer.TCPServer((host, port), MyTCPHandler)
     server.serve_forever()
@@ -56,13 +63,21 @@ class SecureRpcClient(object):
     def __init__(self, host, port, server_public_key, client_private_key):
         self.host = host
         self.port = port
-        self.server_public_key = PublicKey(server_public_key.decode('hex'))
-        self.client_private_key = PrivateKey(client_private_key.decode('hex'))
+        self.server_public_key = PublicKey(server_public_key, HexEncoder)
+        self.client_private_key = PrivateKey(client_private_key, HexEncoder)
 
     def invoke(self, method, params, timeout=60):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((self.host, self.port))
         s.settimeout(timeout)
         request = {'method': method, 'params': params}
-        send_message(s, request, self.client_private_key, self.server_public_key)
-        return read_message(s, self.client_private_key)
+        nonce = nacl.utils.random(16)
+        send_message(s, request, nonce, self.client_private_key, self.server_public_key)
+        sender_public_key, response_nonce, response = read_message(s, self.client_private_key)
+        
+        print sender_public_key.encode(HexEncoder), response_nonce.encode('hex'), response, self.server_public_key.encode(HexEncoder)
+        if sender_public_key.encode(HexEncoder) != self.server_public_key.encode(HexEncoder):
+            raise SecureRpcException('reply authentication error')
+        if nonce != response_nonce:
+            raise SecureRpcException('reply integrity error: replay suspected')
+        return response
