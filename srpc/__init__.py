@@ -53,7 +53,10 @@ def secure_rpc_serve(host, port, server_private_key, server_proxy):
             public_key, nonce, message = read_message(self.request, private_key)
             public_key_hex = public_key.encode(HexEncoder)
             request = SecureRpcRequest(public_key_hex, self.request.getpeername()[0])
-            response = getattr(server_proxy, message['method'])(*([request] + message['params']))
+            try:
+                response = getattr(server_proxy, message['method'])(*([request] + message['params']))
+            except Exception, e:
+                response = {'__error__': str(e)}
             send_message(self.request, response, nonce, private_key, public_key)
     SocketServer.TCPServer.allow_reuse_address = True
     server = SocketServer.TCPServer((host, port), MyTCPHandler)
@@ -78,4 +81,6 @@ class SecureRpcClient(object):
             raise SecureRpcException('reply authentication error')
         if nonce != response_nonce:
             raise SecureRpcException('reply integrity error: replay suspected')
+        if isinstance(response, dict) and '__error__' in response:
+            raise SecureRpcException(response['__error__'])
         return response

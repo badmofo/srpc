@@ -5,6 +5,8 @@ class Adder(object):
     def add(self, request, a, b):
         print request.public_key, request.remote_addr
         print 'adding', a, b
+        if a == 0 or b == 0:
+            raise Exception('only positive ints are supported')
         return a + b
         
 if sys.argv[1].startswith('s'):
@@ -15,3 +17,4 @@ else:
     private_key = '63f06156227b270225feacfc8f3374a8d5079c8deed1320d5db29a898f7a49d0'
     client = SecureRpcClient('localhost', 1234, public_key,  private_key)
     print client.invoke('add', [1,2])
+    print client.invoke('add', [0,2])
