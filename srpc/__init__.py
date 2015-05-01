@@ -15,7 +15,7 @@ class SecureRpcException(Exception):
 
 def read_from_socket(sock, n):
     buffer = StringIO.StringIO()
-    while True:
+    while n > 0:
         b = sock.recv(n)
         if not b:
             break
