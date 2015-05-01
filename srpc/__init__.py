@@ -2,6 +2,7 @@ import json
 import struct
 import socket
 import SocketServer
+import StringIO
 import nacl.utils
 from nacl.encoding import HexEncoder
 from nacl.public import PrivateKey, PublicKey, Box
@@ -12,15 +13,25 @@ MAX_MESSAGE_SIZE = 1024 * 1024
 class SecureRpcException(Exception):
     pass
 
+def read_from_socket(sock, n):
+    buffer = StringIO.StringIO()
+    while True:
+        b = sock.recv(n)
+        if not b:
+            break
+        buffer.write(b)
+        n = n - len(b)
+    return buffer.getvalue()
+
 def read_message(sock, private_key):
-    size = struct.unpack('!L', sock.recv(4))[0]
+    size = struct.unpack('!L', read_from_socket(sock, 4))[0]
     if size > MAX_MESSAGE_SIZE:
         raise SecureRpcException('transport error: invalid message size %s' % size)
-    public_key_sender = sock.recv(32)
+    public_key_sender = read_from_socket(sock, 32)
     if len(public_key_sender) != 32:
         raise SecureRpcException('transport error: public key not full read')
     public_key_sender = PublicKey(public_key_sender)
-    ciphertext = sock.recv(size)
+    ciphertext = read_from_socket(sock, size)
     if len(ciphertext) != size:
         raise SecureRpcException('transport error: message not fully read')
     try:
