@@ -1,8 +1,8 @@
 import json
 import struct
 import socket
-import SocketServer
-import StringIO
+import socketserver
+import io
 import nacl.utils
 from nacl.encoding import HexEncoder
 from nacl.public import PrivateKey, PublicKey, Box
@@ -14,7 +14,7 @@ class SecureRpcException(Exception):
     pass
 
 def read_from_socket(sock, n):
-    buffer = StringIO.StringIO()
+    buffer = io.BytesIO()
     while n > 0:
         b = sock.recv(n)
         if not b:
@@ -38,15 +38,15 @@ def read_message(sock, private_key):
         box = Box(private_key, public_key_sender)
         plaintext = box.decrypt(ciphertext)
         anti_replay_nonce, plaintext = plaintext[:16], plaintext[16:]
-        message = json.loads(plaintext)
-    except ValueError, e:
+        message = json.loads(plaintext.decode('utf-8'))
+    except ValueError as e:
         raise SecureRpcException('decode error: invalid json')
-    except CryptoError, e:
+    except CryptoError as e:
         raise SecureRpcException('decrypt error: %s' % e)
     return public_key_sender, anti_replay_nonce, message
     
 def send_message(sock, message, anti_replay_nonce, private_key_sender, public_key_recipient):
-    plaintext = anti_replay_nonce + json.dumps(message)
+    plaintext = anti_replay_nonce + json.dumps(message).encode('utf-8')
     box = Box(private_key_sender, public_key_recipient)
     ciphertext = box.encrypt(plaintext, nacl.utils.random(Box.NONCE_SIZE))
     public_key_sender = private_key_sender.public_key.encode()
@@ -59,18 +59,18 @@ class SecureRpcRequest(object):
 
 def secure_rpc_serve(host, port, server_private_key, server_proxy):
     private_key = PrivateKey(server_private_key, HexEncoder)
-    class MyTCPHandler(SocketServer.BaseRequestHandler):
+    class MyTCPHandler(socketserver.BaseRequestHandler):
         def handle(self):
             public_key, nonce, message = read_message(self.request, private_key)
             public_key_hex = public_key.encode(HexEncoder)
             request = SecureRpcRequest(public_key_hex, self.request.getpeername()[0])
             try:
                 response = getattr(server_proxy, message['method'])(*([request] + message['params']))
-            except Exception, e:
+            except Exception as e:
                 response = {'__error__': str(e)}
             send_message(self.request, response, nonce, private_key, public_key)
-    SocketServer.TCPServer.allow_reuse_address = True
-    server = SocketServer.TCPServer((host, port), MyTCPHandler)
+    socketserver.TCPServer.allow_reuse_address = True
+    server = socketserver.TCPServer((host, port), MyTCPHandler)
     server.serve_forever()
     
 class SecureRpcClient(object):
