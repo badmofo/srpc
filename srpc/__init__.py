@@ -62,10 +62,13 @@ def secure_rpc_serve(host, port, server_private_key, server_proxy):
     class MyTCPHandler(socketserver.BaseRequestHandler):
         def handle(self):
             public_key, nonce, message = read_message(self.request, private_key)
-            public_key_hex = public_key.encode(HexEncoder)
+            public_key_hex = str(public_key.encode(HexEncoder), 'utf-8')
             request = SecureRpcRequest(public_key_hex, self.request.getpeername()[0])
             try:
-                response = getattr(server_proxy, message['method'])(*([request] + message['params']))
+                if message['method'].startswith('_'):
+                    raise Exception('access denied')
+                method = getattr(server_proxy, message['method'])
+                response = method(*([request] + message['params']))
             except Exception as e:
                 response = {'__error__': str(e)}
             send_message(self.request, response, nonce, private_key, public_key)
