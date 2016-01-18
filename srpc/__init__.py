@@ -56,8 +56,11 @@ class SecureRpcRequest(object):
     def __init__(self, public_key, remote_addr):
         self.public_key = public_key
         self.remote_addr = remote_addr
+        
+    def __repr__(self):
+        return '%s@%s' % (self.public_key, self.remote_addr)
 
-def secure_rpc_serve(host, port, server_private_key, server_proxy):
+def secure_rpc_serve(host, port, server_private_key, server_proxy, logger=None):
     private_key = PrivateKey(server_private_key, HexEncoder)
     class MyTCPHandler(socketserver.BaseRequestHandler):
         def handle(self):
@@ -70,6 +73,8 @@ def secure_rpc_serve(host, port, server_private_key, server_proxy):
                 method = getattr(server_proxy, message['method'])
                 response = method(*([request] + message['params']))
             except Exception as e:
+                if logger:
+                    logger.exception('exception handling request %s %s', request, message)
                 response = {'__error__': str(e)}
             send_message(self.request, response, nonce, private_key, public_key)
     socketserver.TCPServer.allow_reuse_address = True
