@@ -8,7 +8,7 @@ if sys.version_info[0] != 3:
     sys.exit(1)
 
 setup(name='srpc',
-      version='0.2.0',
+      version='0.2.1',
       description='Simple Secure RPC',
       author='Lucas Ryan',
       author_email='badmofo@gmail.com',
