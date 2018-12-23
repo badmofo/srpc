@@ -2,6 +2,7 @@ import json
 import struct
 import socket
 import socketserver
+import contextlib
 import io
 import nacl.utils
 from nacl.encoding import HexEncoder
@@ -89,17 +90,17 @@ class SecureRpcClient(object):
         self.client_private_key = PrivateKey(client_private_key, HexEncoder)
 
     def invoke(self, method, params, timeout=60):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect((self.host, self.port))
-        s.settimeout(timeout)
-        request = {'method': method, 'params': params}
-        nonce = nacl.utils.random(16)
-        send_message(s, request, nonce, self.client_private_key, self.server_public_key)
-        sender_public_key, response_nonce, response = read_message(s, self.client_private_key)
-        if sender_public_key.encode(HexEncoder) != self.server_public_key.encode(HexEncoder):
-            raise SecureRpcException('reply authentication error')
-        if nonce != response_nonce:
-            raise SecureRpcException('reply integrity error: replay suspected')
-        if isinstance(response, dict) and '__error__' in response:
-            raise SecureRpcException(response['__error__'])
-        return response
+        with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+            s.connect((self.host, self.port))
+            s.settimeout(timeout)
+            request = {'method': method, 'params': params}
+            nonce = nacl.utils.random(16)
+            send_message(s, request, nonce, self.client_private_key, self.server_public_key)
+            sender_public_key, response_nonce, response = read_message(s, self.client_private_key)
+            if sender_public_key.encode(HexEncoder) != self.server_public_key.encode(HexEncoder):
+                raise SecureRpcException('reply authentication error')
+            if nonce != response_nonce:
+                raise SecureRpcException('reply integrity error: replay suspected')
+            if isinstance(response, dict) and '__error__' in response:
+                raise SecureRpcException(response['__error__'])
+            return response
